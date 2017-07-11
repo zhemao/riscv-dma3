@@ -455,23 +455,19 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
   val put_id = OHToUInt(put_id_onehot)
   val put_block_id = RegEnable(put_id, tl.a.fire() && edge.first(tl.a))
 
-  val off_size = MuxCase(log2Up(dataBytes).U,
-    (0 until log2Up(dataBytes))
-      .map(place => (dst_addr(place) -> place.U)))
-
   val data = last_data | Mux(io.pipe.data.valid,
     (io.pipe.data.bits.data << Cat(last_bytes_val, 0.U(3.W))), 0.U)
   val bytes_val = Mux(io.pipe.data.valid,
     last_bytes_val + io.pipe.data.bits.bytes + 1.U,
     last_bytes_val)
 
-  val bytes_val_size = Log2(bytes_val)
-  val size = Mux(bytes_val_size < off_size, bytes_val_size, off_size)
-  val storegen = new StoreGen(size, dst_addr, data, dataBytes)
-
-  val off_true_size = 1.U << off_size
-  val needs_more = (bytes_val < off_true_size) && (bytes_val < bytes_left)
+  val off_size = dataBytes.U - dst_byte_off
+  val needs_more = (bytes_val < off_size) && (bytes_val < bytes_left)
   val flush_buffer = (last_bytes_val >= bytes_left)
+
+  val bytes_to_send = Mux(bytes_val < off_size, bytes_val, off_size)
+  val shift_data = (data << Cat(dst_byte_off, 0.U(3.W)))(dataBits-1, 0)
+  val write_mask = (((1.U << bytes_to_send) - 1.U) << dst_byte_off)(dataBytes-1, 0)
 
   val send_block = Reg(init = false.B)
   val alloc = Reg(Bool())
@@ -488,8 +484,8 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
       Mux(send_block, 0.U(beatAddrBits.W), dst_beat),
       0.U(byteAddrBits.W)),
     lgSize = Mux(send_block, blockOffset.U, byteAddrBits.U),
-    data = storegen.data,
-    mask = Mux(send_block, ~0.U(dataBytes.W), storegen.mask))._2
+    data = shift_data,
+    mask = write_mask)._2
   tl.d.ready := put_busy.orR
 
   io.pipe.data.ready := (acquire_ok && tl.a.ready && !flush_buffer) || needs_more
@@ -522,12 +518,11 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
   }
 
   when (tl.a.fire()) {
-    val true_size = 1.U << size
-    val next_addr = dst_addr + true_size
-    val next_bytes_left = bytes_left - true_size
+    val next_addr = dst_addr + bytes_to_send
+    val next_bytes_left = bytes_left - bytes_to_send
 
-    last_bytes_val := bytes_val - true_size
-    last_data := data >> Cat(true_size, 0.U(3.W))
+    last_bytes_val := bytes_val - bytes_to_send
+    last_data := data >> Cat(bytes_to_send, 0.U(3.W))
     bytes_left := next_bytes_left
     dst_addr := next_addr
 
