@@ -2,11 +2,11 @@ package dma
 
 import chisel3._
 import chisel3.util._
-import config.Parameters
-import diplomacy.{LazyModule, LazyModuleImp, IdRange, AddressSet}
-import uncore.tilelink2._
-import uncore.devices.TLROM
-import unittest.{UnitTest, HasUnitTestIO}
+import freechips.rocketchip.config.Parameters
+import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, IdRange, AddressSet}
+import freechips.rocketchip.tilelink._
+import freechips.rocketchip.devices.tilelink.{TLROM, TLTestRAM}
+import freechips.rocketchip.unittest.{UnitTest, HasUnitTestIO}
 
 class DmaBackendTestDriver(
     val dstStart: Int, val srcStart: Int,
@@ -73,8 +73,8 @@ class DmaBackendTestDriverModule(outer: DmaBackendTestDriver)
 }
 
 class DmaBackendTest(implicit p: Parameters) extends LazyModule {
-  val srcStart = 0x104
-  val dstStart = 0x0
+  val srcStart = 0x100
+  val dstStart = 0x4
   val maxLength = 128
   val length = maxLength - (srcStart - 0x100)
   val wordBytes = 4

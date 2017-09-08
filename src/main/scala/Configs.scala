@@ -1,8 +1,8 @@
 package dma
 
-import config.{Parameters, Config}
-import unittest.UnitTests
-import rocketchip.BaseConfig
+import freechips.rocketchip.config.{Parameters, Config}
+import freechips.rocketchip.unittest.UnitTests
+import freechips.rocketchip.system.BaseConfig
 
 class WithDma extends Config((site, here, up) => {
   case DmaKey => DmaConfig()

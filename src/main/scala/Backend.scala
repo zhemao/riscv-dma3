@@ -2,13 +2,12 @@ package dma
 
 import chisel3._
 import chisel3.util._
-import config.{Parameters, Field}
-import coreplex.CacheBlockBytes
-import diplomacy.{LazyModule, LazyModuleImp, IdRange}
-import rocket.PAddrBits
-import uncore.tilelink2._
-import uncore.util._
-import _root_.util._
+import freechips.rocketchip.config.{Parameters, Field}
+import freechips.rocketchip.coreplex.CacheBlockBytes
+import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, IdRange}
+import freechips.rocketchip.rocket.PAddrBits
+import freechips.rocketchip.tilelink._
+import freechips.rocketchip.util._
 
 case class DmaConfig(
   nTrackers: Int = 1,
