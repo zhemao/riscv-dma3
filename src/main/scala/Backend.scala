@@ -213,7 +213,7 @@ class ReservationQueue(val edge: TLEdge)(implicit val p: Parameters)
   io.in.data.ready := true.B
   io.out.data.valid := (pkt_valid >> head)(0)
   io.out.data.bits := pkt_buffer(head)
-  io.out.count := count // count is amount allocated, not amount stored
+  io.out.count := PopCount(pkt_valid)
 
   when (req.fire()) {
     tail := incWrap(tail, req_count)
