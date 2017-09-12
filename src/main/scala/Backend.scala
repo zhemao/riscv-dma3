@@ -195,11 +195,11 @@ class ReservationQueue(val edge: TLEdge)(implicit val p: Parameters)
   val req = Queue(io.in.req, 1)
 
   val pkt_buffer = Mem(pipelineDepth, new PipelinePacket(dataBits))
-  val pkt_valid = Reg(init = 0.U(pipelineDepth.W))
+  val pkt_valid = RegInit(0.U(pipelineDepth.W))
 
-  val head = Reg(init = 0.U(pipelineIdxBits.W))
-  val tail = Reg(init = 0.U(pipelineIdxBits.W))
-  val count = Reg(init = 0.U(pipelineCountBits.W))
+  val head = RegInit(0.U(pipelineIdxBits.W))
+  val tail = RegInit(0.U(pipelineIdxBits.W))
+  val count = RegInit(0.U(pipelineCountBits.W))
 
   val req_count = Mux(req.bits.multibeat, dataBeats.U, 1.U)
   count := count + Mux(req.fire(), req_count, 0.U) - io.out.data.fire()
@@ -269,7 +269,7 @@ class DmaTrackerPrefetcherModule(outer: DmaTrackerPrefetcher)
     ~Mux(tl.d.fire(), UIntToOH(tl.d.bits.source), 0.U)
 
   val s_idle :: s_prefetch :: s_resp :: Nil = Enum(3)
-  val state = Reg(init = s_idle)
+  val state = RegInit(s_idle)
 
   tl.a.valid := (state === s_prefetch) && !prefetch_busy.andR
   tl.a.bits := edge.Hint(
@@ -335,9 +335,9 @@ class DmaTrackerReaderModule(outer: DmaTrackerReader)
   val bytes_left = Reg(UInt(addrBits.W))
 
   val s_idle :: s_reserve :: s_mem_req :: Nil = Enum(3)
-  val state = Reg(init = s_idle)
+  val state = RegInit(s_idle)
 
-  val get_busy = Reg(init = 0.U(nDmaTrackerMemXacts.W))
+  val get_busy = RegInit(0.U(nDmaTrackerMemXacts.W))
   val byte_offset = Mem(nDmaTrackerMemXacts, UInt(byteAddrBits.W))
   val bytes_valid = Mem(nDmaTrackerMemXacts, UInt(byteAddrBits.W))
   val get_id_onehot = PriorityEncoderOH(~get_busy)
@@ -444,7 +444,7 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
   val dma_req_id = Reg(io.dma.req.bits.xact_id.cloneType)
 
   val s_idle :: s_mem_req :: s_resp :: Nil = Enum(3)
-  val state = Reg(init = s_idle)
+  val state = RegInit(s_idle)
 
   val last_data = Reg(UInt(dataBits.W))
   val last_bytes_val = Reg(UInt((log2Up(dataBytes) + 1).W))
@@ -468,7 +468,7 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
   val shift_data = (data << Cat(dst_byte_off, 0.U(3.W)))(dataBits-1, 0)
   val write_mask = (((1.U << bytes_to_send) - 1.U) << dst_byte_off)(dataBytes-1, 0)
 
-  val send_block = Reg(init = false.B)
+  val send_block = RegInit(false.B)
   val alloc = Reg(Bool())
   val block_acquire = send_block && (io.pipe.count < (dataBeats.U - dst_beat))
   val acquire_ok = (state === s_mem_req) &&
@@ -575,7 +575,7 @@ class DmaTrackerModule(outer: DmaTracker) extends LazyModuleImp(outer)
   writer.io.pipe <> resq.io.out
 
   val s_idle :: s_prefetch :: s_read :: s_write :: Nil = Enum(4)
-  val state = Reg(init = s_idle)
+  val state = RegInit(s_idle)
 
   val is_prefetch = io.dma.req.bits.isPrefetch()
   val is_copy = io.dma.req.bits.cmd === DMA_CMD_COPY

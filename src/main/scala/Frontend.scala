@@ -125,7 +125,7 @@ class DecoupledTLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extend
   val tlb = Module(new TLB(lgMaxSize, entries))
 
   val s_idle :: s_tlb_req :: s_tlb_resp :: s_done :: Nil = Enum(Bits(), 4)
-  val state = Reg(init = s_idle)
+  val state = RegInit(s_idle)
 
   when (io.req.fire()) {
     req := io.req.bits
@@ -237,7 +237,7 @@ class DmaFrontend(implicit p: Parameters) extends CoreModule()(p)
 
   val (s_idle :: s_translate :: s_dma_req :: s_dma_update ::
        s_prepare :: s_finish :: Nil) = Enum(6)
-  val state = Reg(init = s_idle)
+  val state = RegInit(s_idle)
 
   // lower bit is for src, higher bit is for dst
   val to_translate = Reg(UInt(2.W), init = 0.U)
