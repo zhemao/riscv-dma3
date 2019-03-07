@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.diplomacy.LazyModule
 import freechips.rocketchip.rocket._
-import freechips.rocketchip.tile.{LazyRoCC, LazyRoCCModule, RoCCCommand, RoCCResponse}
+import freechips.rocketchip.tile._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.config.{Parameters, Field}
 import scala.math.max
@@ -41,14 +41,14 @@ class DmaCtrlRegFile(implicit val p: Parameters) extends Module
     val pause = Output(Bool())
 
     val dma_resp = Flipped(Valid(new ClientDmaResponse))
-    //val sg_resp = Flipped(Valid(new ScatterGatherResponse))
+    val sg_resp = Flipped(Valid(new ScatterGatherResponse))
     val error = Output(Bool())
   })
 
   val regSize = max(dmaSegmentSizeBits, vpnBits)
   val regs = Reg(Vec(nRegs, UInt(regSize.W)))
 
-  when (reset) {
+  when (reset.toBool) {
     regs(ACCEL_CTRL) := "b010".U
     regs(RESP_STATUS) := 0.U
   }
@@ -69,10 +69,10 @@ class DmaCtrlRegFile(implicit val p: Parameters) extends Module
     regs(RESP_STATUS) := io.dma_resp.bits.status
     regs(RESP_VPN) := io.dma_resp.bits.fault_vpn
   }
-  //when (io.sg_resp.valid) {
-  //  regs(RESP_STATUS) := io.sg_resp.bits.status
-  //  regs(RESP_VPN) := io.sg_resp.bits.fault_vpn
-  //}
+  when (io.sg_resp.valid) {
+    regs(RESP_STATUS) := io.sg_resp.bits.status
+    regs(RESP_VPN) := io.sg_resp.bits.fault_vpn
+  }
 
   io.rdata := regs(io.rwaddr)
   io.error := regs(RESP_STATUS) =/= 0.U
@@ -101,8 +101,8 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
 
   val crfile = Module(new DmaCtrlRegFile)
   val frontend = Module(new DmaFrontend)
-  //val sgunit = Module(new ScatterGatherUnit(1))
-  val clientArb = Module(new ClientDmaArbiter(1))
+  val sgunit = Module(new ScatterGatherUnit(1))
+  val clientArb = Module(new ClientDmaArbiter(2))
 
   crfile.io.rwaddr := cmd.bits.rs1
   crfile.io.wdata := cmd.bits.rs2
@@ -110,7 +110,7 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
   crfile.io.set := is_cr_set
   crfile.io.clear := is_cr_clear
   crfile.io.dma_resp <> clientArb.io.in(0).resp
-  //crfile.io.sg_resp <> sgunit.io.cpu.resp
+  crfile.io.sg_resp <> sgunit.io.cpu.resp
 
   clientArb.io.in(0).req.valid := cmd.valid && is_transfer
   clientArb.io.in(0).req.bits := ClientDmaRequest(
@@ -123,32 +123,30 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
     segment_size = crfile.io.segment_size,
     nsegments = crfile.io.nsegments,
     alloc = crfile.io.alloc)
-  //clientArb.io.in(1) <> sgunit.io.dma
+  clientArb.io.in(1) <> sgunit.io.dma
 
   frontend.io.cpu <> clientArb.io.out
   frontend.io.pause := crfile.io.pause
 
   val status = RegEnable(cmd.bits.status, cmd.fire() && (is_transfer || is_sg))
-  val tlb = Module(new FrontendTLB(1))
+  val tlb = Module(new FrontendTLB(2))
   tlb.io.clients(0) <> frontend.io.tlb
-  //tlb.io.clients(1) <> sgunit.io.tlb
+  tlb.io.clients(1) <> sgunit.io.tlb
   io.ptw <> tlb.io.ptw
   tlb.io.ptw.status := status
 
-  //sgunit.io.cpu.req.valid := cmd.valid && is_sg
-  //sgunit.io.cpu.req.bits := ScatterGatherRequest(
-  //  cmd = cmd.bits.inst.funct,
-  //  src_start = cmd.bits.rs2,
-  //  dst_start = cmd.bits.rs1,
-  //  segment_size = crfile.io.segment_size,
-  //  nsegments = crfile.io.nsegments,
-  //  alloc = crfile.io.alloc)
+  sgunit.io.cpu.req.valid := cmd.valid && is_sg
+  sgunit.io.cpu.req.bits := ScatterGatherRequest(
+    cmd = cmd.bits.inst.funct,
+    src_start = cmd.bits.rs2,
+    dst_start = cmd.bits.rs1,
+    segment_size = crfile.io.segment_size,
+    nsegments = crfile.io.nsegments,
+    alloc = crfile.io.alloc)
 
   io.dma <> frontend.io.dma
-  //io.mem <> sgunit.io.mem
-  io.mem.req.valid := false.B
-  io.busy := cmd.valid || frontend.io.busy //|| sgunit.io.busy
-  io.mem.invalidate_lr := false.B
+  io.mem <> sgunit.io.mem
+  io.busy := cmd.valid || frontend.io.busy || sgunit.io.busy
   io.interrupt := false.B
 
   io.resp.valid := cmd.valid && is_cr_read
@@ -156,19 +154,20 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
   io.resp.bits.data := crfile.io.rdata
 
   cmd.ready := (is_transfer && clientArb.io.in(0).req.ready) ||
-               //(is_sg && sgunit.io.cpu.req.ready) ||
+               (is_sg && sgunit.io.cpu.req.ready) ||
                is_cr_write || // Write can always go through immediately
                (is_cr_read && io.resp.ready)
 }
 
-class CopyAccelerator(implicit p: Parameters) extends LazyRoCC {
+class CopyAccelerator(opcodes: OpcodeSet)(implicit p: Parameters)
+    extends LazyRoCC(opcodes, 1) {
   val backend = LazyModule(new DmaBackend)
 
-  tlNode :=* backend.node
+  override val tlNode = backend.node
 
-  lazy val module = new LazyRoCCModule(this) {
-    implicit val edge = tlNode.edgesOut(0)
-    val ctrl = Module(new DmaController)
+  lazy val module = new LazyRoCCModuleImp(this) {
+    val edge = tlNode.edges.out.head
+    val ctrl = Module(new DmaController()(p, edge))
 
     ctrl.io.cmd <> io.cmd
     io.resp <> ctrl.io.resp

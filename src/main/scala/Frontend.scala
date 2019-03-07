@@ -17,7 +17,7 @@ trait HasClientDmaParameters extends HasCoreParameters with HasDmaParameters {
 }
 
 abstract class ClientDmaBundle(implicit val p: Parameters)
-  extends ParameterizedBundle()(p) with HasClientDmaParameters
+  extends Bundle with HasClientDmaParameters
 abstract class ClientDmaModule(implicit val p: Parameters)
   extends Module with HasClientDmaParameters
 
@@ -90,7 +90,7 @@ class ClientDmaResponse(implicit p: Parameters)
   val fault_vpn = UInt(vpnBits.W)
 }
 
-class ClientDmaIO(implicit p: Parameters) extends ParameterizedBundle()(p) {
+class ClientDmaIO(implicit val p: Parameters) extends Bundle {
   val req = Decoupled(new ClientDmaRequest)
   val resp = Flipped(Valid(new ClientDmaResponse))
 }
@@ -122,7 +122,7 @@ class DecoupledTLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extend
 
   val req = Reg(new TLBReq(lgMaxSize))
   val resp = Reg(new TLBResp)
-  val tlb = Module(new TLB(lgMaxSize, entries))
+  val tlb = Module(new TLB(false, lgMaxSize, TLBConfig(entries)))
 
   val s_idle :: s_tlb_req :: s_tlb_resp :: s_done :: Nil = Enum(Bits(), 4)
   val state = RegInit(s_idle)
@@ -151,6 +151,9 @@ class DecoupledTLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extend
 
   tlb.io.req.valid := state === s_tlb_req
   tlb.io.req.bits := req
+  tlb.io.sfence.valid := false.B
+  tlb.io.sfence.bits := DontCare
+  tlb.io.kill := false.B
 
   io.resp.valid := state === s_done
   io.resp.bits := resp
@@ -251,11 +254,6 @@ class DmaFrontend(implicit p: Parameters) extends CoreModule()(p)
   io.tlb.req.valid := tlb_to_send.orR
   io.tlb.req.bits.vaddr := Cat(send_vpn, 0.U(pgIdxBits.W))
   io.tlb.req.bits.passthrough := false.B
-  io.tlb.req.bits.instruction := false.B
-  io.tlb.req.bits.sfence.valid := PriorityMux(tlb_to_send, ptw_errors.toBools)
-  io.tlb.req.bits.sfence.bits.rs1 := true.B
-  io.tlb.req.bits.sfence.bits.rs2 := false.B
-  io.tlb.req.bits.sfence.bits.addr := Cat(send_vpn, 0.U(pgIdxBits.W))
   io.tlb.resp.ready := tlb_sent.orR
 
   when (io.tlb.req.fire()) {

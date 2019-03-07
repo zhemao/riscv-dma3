@@ -3,11 +3,12 @@ package dma
 import chisel3._
 import chisel3.util._
 import freechips.rocketchip.config.{Parameters, Field}
-import freechips.rocketchip.coreplex.CacheBlockBytes
+import freechips.rocketchip.subsystem.CacheBlockBytes
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, IdRange}
-import freechips.rocketchip.rocket.PAddrBits
+import freechips.rocketchip.tile.SharedMemoryTLEdge
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
+import testchipip.TLHelper
 
 case class DmaConfig(
   nTrackers: Int = 1,
@@ -28,9 +29,9 @@ trait HasDmaParameters {
   val pipelineIdxBits = log2Up(pipelineDepth)
   val pipelineCountBits = log2Up(pipelineDepth+1)
   val dmaStatusBits = 3
-  val addrBits = p(PAddrBits)
   val blockBytes = p(CacheBlockBytes)
   val blockOffset = log2Ceil(blockBytes)
+  val addrBits = 48 // TODO: Make this properly configurable
   val blockAddrBits = addrBits - blockOffset
 }
 
@@ -50,7 +51,7 @@ trait DmaTrackerUtils extends HasDmaParameters {
 }
 
 abstract class DmaModule(implicit val p: Parameters) extends Module with HasDmaParameters
-abstract class DmaBundle(implicit val p: Parameters) extends ParameterizedBundle()(p) with HasDmaParameters
+abstract class DmaBundle(implicit val p: Parameters) extends Bundle with HasDmaParameters
 
 class DmaRequest(implicit p: Parameters) extends DmaBundle()(p) {
   val xact_id = UInt(dmaXactIdBits.W)
@@ -99,12 +100,12 @@ class DmaIO(implicit p: Parameters) extends DmaBundle()(p) {
   val resp = Flipped(Decoupled(new DmaResponse))
 }
 
-class DmaBackend(implicit p: Parameters) extends LazyModule 
+class DmaBackend(implicit p: Parameters) extends LazyModule
     with HasDmaParameters {
   val trackers = Seq.tabulate(nDmaTrackers) {
     i => LazyModule(new DmaTracker(i))
   }
-  val node = TLOutputNode()
+  val node = TLIdentityNode()
 
   trackers.foreach { node := _.node }
 
@@ -115,7 +116,6 @@ class DmaBackendModule(outer: DmaBackend) extends LazyModuleImp(outer)
     with HasDmaParameters {
   val io = IO(new Bundle {
     val dma = Flipped(new DmaIO)
-    val mem = outer.node.bundleOut
   })
 
   val trackers = outer.trackers.map(_.module)
@@ -149,9 +149,7 @@ class ReservationRequest extends Bundle {
   val multibeat = Bool()
 }
 
-class ReservationResponse(implicit val p: Parameters)
-    extends ParameterizedBundle
-    with HasDmaParameters {
+class ReservationResponse(implicit p: Parameters) extends DmaBundle {
   val idx = UInt(pipelineIdxBits.W)
 }
 
@@ -238,9 +236,9 @@ class ReservationQueue(val edge: TLEdge)(implicit val p: Parameters)
 class DmaTrackerPrefetcher(id: Int)(implicit p: Parameters)
     extends LazyModule with HasDmaParameters {
 
-  val node = TLClientNode(TLClientParameters(
+  val node = TLHelper.makeClientNode(
     name = s"dma-prefetcher${id}",
-    sourceId = IdRange(0, nDmaTrackerMemXacts)))
+    sourceId = IdRange(0, nDmaTrackerMemXacts))
 
   lazy val module = new DmaTrackerPrefetcherModule(this)
 }
@@ -249,11 +247,9 @@ class DmaTrackerPrefetcherModule(outer: DmaTrackerPrefetcher)
     extends LazyModuleImp(outer) with HasDmaParameters {
   val io = IO(new Bundle {
     val dma = Flipped(new DmaIO)
-    val mem = outer.node.bundleOut
   })
 
-  val tl = io.mem(0)
-  val edge = outer.node.edgesOut(0)
+  val (tl, edge) = outer.node.out(0)
   val dst_block = Reg(UInt(blockAddrBits.W))
   val bytes_left = Reg(UInt(addrBits.W))
 
@@ -309,9 +305,9 @@ class DmaTrackerPrefetcherModule(outer: DmaTrackerPrefetcher)
 
 class DmaTrackerReader(id: Int)(implicit p: Parameters)
     extends LazyModule with HasDmaParameters {
-  val node = TLClientNode(TLClientParameters(
+  val node = TLHelper.makeClientNode(
     name = s"dma-reader${id}",
-    sourceId = IdRange(0, nDmaTrackerMemXacts)))
+    sourceId = IdRange(0, nDmaTrackerMemXacts))
 
   lazy val module = new DmaTrackerReaderModule(this)
 }
@@ -320,13 +316,11 @@ class DmaTrackerReaderModule(outer: DmaTrackerReader)
     extends LazyModuleImp(outer)
     with DmaTrackerUtils {
 
-  val edge = outer.node.edgesOut(0)
+  val (tl, edge) = outer.node.out(0)
   val io = IO(new Bundle {
     val dma_req = Flipped(Decoupled(new DmaRequest))
-    val mem = outer.node.bundleOut
     val res = new ReservationInputIO(dataBits)
   })
-  val tl = io.mem(0)
 
   val src_addr = Reg(UInt(addrBits.W))
   val src_block = src_addr(addrBits - 1, blockOffset)
@@ -416,9 +410,9 @@ class DmaTrackerReaderModule(outer: DmaTrackerReader)
 
 class DmaTrackerWriter(id: Int)(implicit p: Parameters)
     extends LazyModule with HasDmaParameters {
-  val node = TLClientNode(TLClientParameters(
+  val node = TLHelper.makeClientNode(
     name = s"dma-writer${id}",
-    sourceId = IdRange(0, nDmaTrackerMemXacts)))
+    sourceId = IdRange(0, nDmaTrackerMemXacts))
 
   lazy val module = new DmaTrackerWriterModule(this)
 }
@@ -427,13 +421,11 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
     extends LazyModuleImp(outer)
     with DmaTrackerUtils {
 
-  val edge = outer.node.edgesOut(0)
+  val (tl, edge) = outer.node.out(0)
   val io = IO(new Bundle {
     val dma = Flipped(new DmaIO)
-    val mem = outer.node.bundleOut
     val pipe = Flipped(new ReservationOutputIO(dataBits))
   })
-  val tl = io.mem(0)
 
   val dst_addr = Reg(UInt(addrBits.W))
   val dst_block = dst_addr(addrBits - 1, blockOffset)
@@ -542,7 +534,7 @@ class DmaTracker(id: Int)(implicit p: Parameters) extends LazyModule {
   val reader = LazyModule(new DmaTrackerReader(id))
   val writer = LazyModule(new DmaTrackerWriter(id))
   val xbar = LazyModule(new TLXbar)
-  val node = TLOutputNode()
+  val node = TLIdentityNode()
 
   xbar.node := prefetch.node
   xbar.node := reader.node
@@ -555,11 +547,11 @@ class DmaTracker(id: Int)(implicit p: Parameters) extends LazyModule {
 class DmaTrackerModule(outer: DmaTracker) extends LazyModuleImp(outer)
     with DmaTrackerUtils {
 
-  val edge = outer.node.edgesOut(0)
   val io = IO(new Bundle {
     val dma = Flipped(new DmaIO)
-    val mem = outer.node.bundleOut
   })
+
+  val (tl, edge) = outer.node.out(0)
 
   require(pipelineDepth >= 1)
   // we can't have more outstanding requests than we have pipeline space
@@ -571,7 +563,10 @@ class DmaTrackerModule(outer: DmaTracker) extends LazyModuleImp(outer)
   val reader = outer.reader.module
   val writer = outer.writer.module
   val resq = Module(new ReservationQueue(edge))
-  resq.io.in <> reader.io.res
+  //resq.io.in <> reader.io.res
+  resq.io.in.req <> reader.io.res.req
+  resq.io.in.data <> reader.io.res.data
+  reader.io.res.resp <> resq.io.in.resp
   writer.io.pipe <> resq.io.out
 
   val s_idle :: s_prefetch :: s_read :: s_write :: Nil = Enum(4)

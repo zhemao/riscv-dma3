@@ -6,22 +6,22 @@ import freechips.rocketchip.config.Parameters
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, IdRange, AddressSet}
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.devices.tilelink.{TLROM, TLTestRAM}
-import freechips.rocketchip.unittest.{UnitTest, HasUnitTestIO}
+import freechips.rocketchip.unittest.{UnitTest, UnitTestIO}
+import testchipip.TLHelper
 
 class DmaBackendTestDriver(
     val dstStart: Int, val srcStart: Int,
     val wordBytes: Int, val testWords: Seq[Long])
     (implicit p: Parameters) extends LazyModule {
-  val node = TLClientNode(TLClientParameters(
+  val node = TLHelper.makeClientNode(
     name = "test-driver",
-    sourceId = IdRange(0, 1)))
+    sourceId = IdRange(0, 1))
   lazy val module = new DmaBackendTestDriverModule(this)
 }
 
 class DmaBackendTestDriverModule(outer: DmaBackendTestDriver)
     extends LazyModuleImp(outer) {
   val io = IO(new Bundle {
-    val mem = outer.node.bundleOut
     val dma = new DmaIO
     val finished = Output(Bool())
     val start = Input(Bool())
@@ -44,8 +44,7 @@ class DmaBackendTestDriverModule(outer: DmaBackendTestDriver)
     length = length.U)
   io.dma.resp.ready := state === s_dma_resp
 
-  val tl = io.mem(0)
-  val edge = outer.node.edgesOut(0)
+  val (tl, edge) = outer.node.out(0)
   val (checkIdx, checkDone) = Counter(tl.d.fire(), expectedData.size)
 
   tl.a.valid := state === s_check_req
@@ -102,12 +101,13 @@ class DmaBackendTest(implicit p: Parameters) extends LazyModule {
     contentsDelayed = testData,
     beatBytes = beatBytes))
 
-  xbar.node := TLBuffer()(driver.node)
-  xbar.node := TLBuffer()(TLHintHandler()(backend.node))
-  ram.node := TLFragmenter(beatBytes, testData.size)(xbar.node)
-  rom.node := TLFragmenter(beatBytes, testData.size)(xbar.node)
+  xbar.node := TLBuffer() := driver.node
+  xbar.node := TLBuffer() := TLHintHandler() := backend.node
+  ram.node := TLFragmenter(beatBytes, testData.size) := xbar.node
+  rom.node := TLFragmenter(beatBytes, testData.size) := xbar.node
 
-  lazy val module = new LazyModuleImp(this) with HasUnitTestIO {
+  lazy val module = new LazyModuleImp(this) {
+    val io = IO(new Bundle with UnitTestIO)
     backend.module.io.dma <> driver.module.io.dma
     driver.module.io.start := io.start
     io.finished := driver.module.io.finished
