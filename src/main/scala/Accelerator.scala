@@ -88,6 +88,7 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
     val mem = new HellaCacheIO
     val busy = Output(Bool())
     val interrupt = Output(Bool())
+    val sfence = Valid(new SFenceReq).flip
   })
 
   val cmd = Queue(io.cmd)
@@ -134,6 +135,7 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
   tlb.io.clients(1) <> sgunit.io.tlb
   io.ptw <> tlb.io.ptw
   tlb.io.ptw.status := status
+  tlb.io.sfence := io.sfence
 
   sgunit.io.cpu.req.valid := cmd.valid && is_sg
   sgunit.io.cpu.req.bits := ScatterGatherRequest(
@@ -170,6 +172,7 @@ class CopyAccelerator(opcodes: OpcodeSet)(implicit p: Parameters)
     val ctrl = Module(new DmaController()(p, edge))
 
     ctrl.io.cmd <> io.cmd
+    ctrl.io.sfence := io.sfence
     io.resp <> ctrl.io.resp
     io.ptw.head <> ctrl.io.ptw
     io.busy := ctrl.io.busy

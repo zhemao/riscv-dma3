@@ -118,6 +118,7 @@ class DecoupledTLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extend
     val req = Flipped(Decoupled(new TLBReq(lgMaxSize)))
     val resp = Decoupled(new TLBResp)
     val ptw = new TLBPTWIO
+    val sfence = Valid(new SFenceReq).flip
   }
 
   val req = Reg(new TLBReq(lgMaxSize))
@@ -151,8 +152,7 @@ class DecoupledTLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extend
 
   tlb.io.req.valid := state === s_tlb_req
   tlb.io.req.bits := req
-  tlb.io.sfence.valid := false.B
-  tlb.io.sfence.bits := DontCare
+  tlb.io.sfence := io.sfence
   tlb.io.kill := false.B
 
   io.resp.valid := state === s_done
@@ -172,6 +172,7 @@ class FrontendTLB(nClients: Int)
   val io = IO(new Bundle {
     val clients = Flipped(Vec(nClients, new FrontendTLBIO))
     val ptw = new TLBPTWIO
+    val sfence = Valid(new SFenceReq).flip
   })
 
   val lgMaxSize = log2Ceil(coreDataBytes)
@@ -186,6 +187,8 @@ class FrontendTLB(nClients: Int)
   io.clients.zip(tlbArb.io.in_resp).foreach {
     case (client, arb_resp) => client.resp <> arb_resp
   }
+
+  tlb.io.sfence := io.sfence
 }
 
 class DmaFrontend(implicit p: Parameters) extends CoreModule()(p)
