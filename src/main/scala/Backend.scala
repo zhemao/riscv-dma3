@@ -9,6 +9,7 @@ import freechips.rocketchip.tile.SharedMemoryTLEdge
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 import testchipip.TLHelper
+import midas.targetutils.FpgaDebug
 
 case class DmaConfig(
   nTrackers: Int = 1,
@@ -406,6 +407,8 @@ class DmaTrackerReaderModule(outer: DmaTrackerReader)
   io.res.data.bits.idx := data_index(grant_id)
   io.res.data.bits.data := tl.d.bits.data >> Cat(byte_offset(grant_id), 0.U(3.W))
   io.res.data.bits.bytes := bytes_valid(grant_id) - 1.U
+
+  FpgaDebug(io.res, state, get_busy, bytes_left, tl)
 }
 
 class DmaTrackerWriter(id: Int)(implicit p: Parameters)
@@ -527,6 +530,8 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
   }
 
   when (io.dma.resp.fire()) { state := s_idle }
+
+  FpgaDebug(io.pipe, state, put_busy, bytes_left, tl)
 }
 
 class DmaTracker(id: Int)(implicit p: Parameters) extends LazyModule {
@@ -610,4 +615,6 @@ class DmaTrackerModule(outer: DmaTracker) extends LazyModuleImp(outer)
   val respArb = Module(new RRArbiter(new DmaResponse, 2))
   respArb.io.in <> Seq(prefetch.io.dma.resp, writer.io.dma.resp)
   io.dma.resp <> respArb.io.out
+
+  FpgaDebug(io.dma)
 }
