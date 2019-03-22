@@ -551,7 +551,7 @@ class DmaTrackerModule(outer: DmaTracker) extends LazyModuleImp(outer)
     val dma = Flipped(new DmaIO)
   })
 
-  val (tl, edge) = outer.node.out(0)
+  val edge = outer.node.edges.out(0)
 
   require(pipelineDepth >= 1)
   // we can't have more outstanding requests than we have pipeline space
