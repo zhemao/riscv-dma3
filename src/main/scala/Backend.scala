@@ -459,7 +459,9 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
   val needs_more = (bytes_val < off_size) && (bytes_val < bytes_left)
   val flush_buffer = (last_bytes_val >= bytes_left)
 
-  val bytes_to_send = Mux(bytes_val < off_size, bytes_val, off_size)
+  val bytes_to_send = MuxCase(off_size, Seq(
+    flush_buffer -> bytes_left(byteAddrBits-1, 0),
+    (bytes_val < off_size) -> bytes_val))
   val shift_data = (data << Cat(dst_byte_off, 0.U(3.W)))(dataBits-1, 0)
   val write_mask = (((1.U << bytes_to_send) - 1.U) << dst_byte_off)(dataBytes-1, 0)
 
