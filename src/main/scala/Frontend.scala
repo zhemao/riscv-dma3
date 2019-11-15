@@ -118,7 +118,7 @@ class DecoupledTLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extend
     val req = Flipped(Decoupled(new TLBReq(lgMaxSize)))
     val resp = Decoupled(new TLBResp)
     val ptw = new TLBPTWIO
-    val sfence = Valid(new SFenceReq).flip
+    val sfence = Flipped(Valid(new SFenceReq))
   }
 
   val req = Reg(new TLBReq(lgMaxSize))
@@ -153,6 +153,10 @@ class DecoupledTLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extend
   tlb.io.req.valid := state === s_tlb_req
   tlb.io.req.bits := req
   tlb.io.sfence := io.sfence
+  when (io.sfence.valid) {
+    tlb.io.req.bits.vaddr := io.sfence.bits.addr
+    assert(io.req.ready)
+  }
   tlb.io.kill := false.B
 
   io.resp.valid := state === s_done
@@ -172,7 +176,7 @@ class FrontendTLB(nClients: Int)
   val io = IO(new Bundle {
     val clients = Flipped(Vec(nClients, new FrontendTLBIO))
     val ptw = new TLBPTWIO
-    val sfence = Valid(new SFenceReq).flip
+    val sfence = Flipped(Valid(new SFenceReq))
   })
 
   val lgMaxSize = log2Ceil(coreDataBytes)

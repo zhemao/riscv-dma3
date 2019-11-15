@@ -5,7 +5,6 @@ import chisel3.util._
 import freechips.rocketchip.config.{Parameters, Field}
 import freechips.rocketchip.subsystem.CacheBlockBytes
 import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, IdRange}
-import freechips.rocketchip.tile.SharedMemoryTLEdge
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 import testchipip.TLHelper

@@ -88,12 +88,12 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
     val mem = new HellaCacheIO
     val busy = Output(Bool())
     val interrupt = Output(Bool())
-    val sfence = Valid(new SFenceReq).flip
   })
 
   val cmd = Queue(io.cmd)
   val inst = cmd.bits.inst
-  val is_transfer = inst.funct < 4.U
+  val is_transfer = inst.funct < 3.U
+  val is_sfence = inst.funct === 3.U
   val is_cr_read = inst.funct === 4.U
   val is_cr_write = inst.funct >= 5.U && inst.funct <= 7.U
   val is_cr_set = inst.funct === 6.U
@@ -135,7 +135,11 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
   tlb.io.clients(1) <> sgunit.io.tlb
   io.ptw <> tlb.io.ptw
   tlb.io.ptw.status := status
-  tlb.io.sfence := io.sfence
+  tlb.io.sfence.valid := cmd.fire() && is_sfence
+  tlb.io.sfence.bits.rs1 := inst.xs1
+  tlb.io.sfence.bits.rs2 := inst.xs2
+  tlb.io.sfence.bits.addr := cmd.bits.rs1
+  tlb.io.sfence.bits.asid := cmd.bits.rs2
 
   sgunit.io.cpu.req.valid := cmd.valid && is_sg
   sgunit.io.cpu.req.bits := ScatterGatherRequest(
@@ -148,7 +152,8 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
 
   io.dma <> frontend.io.dma
   io.mem <> sgunit.io.mem
-  io.busy := cmd.valid || frontend.io.busy || sgunit.io.busy
+  val busy = frontend.io.busy || sgunit.io.busy
+  io.busy := cmd.valid || busy
   io.interrupt := false.B
 
   io.resp.valid := cmd.valid && is_cr_read
@@ -156,6 +161,7 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
   io.resp.bits.data := crfile.io.rdata
 
   cmd.ready := (is_transfer && clientArb.io.in(0).req.ready) ||
+               (is_sfence && !busy) ||
                (is_sg && sgunit.io.cpu.req.ready) ||
                is_cr_write || // Write can always go through immediately
                (is_cr_read && io.resp.ready)
@@ -172,7 +178,6 @@ class CopyAccelerator(opcodes: OpcodeSet)(implicit p: Parameters)
     val ctrl = Module(new DmaController()(p, edge))
 
     ctrl.io.cmd <> io.cmd
-    ctrl.io.sfence := io.sfence
     io.resp <> ctrl.io.resp
     io.ptw.head <> ctrl.io.ptw
     io.busy := ctrl.io.busy
