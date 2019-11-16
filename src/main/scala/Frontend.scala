@@ -8,6 +8,7 @@ import freechips.rocketchip.rocket._
 import freechips.rocketchip.tile.{HasCoreParameters, CoreBundle, CoreModule}
 import freechips.rocketchip.config.Parameters
 import DmaRequest._
+import midas.targetutils.FpgaDebug
 
 trait HasClientDmaParameters extends HasCoreParameters with HasDmaParameters {
   val dmaAddrBits = coreMaxAddrBits
@@ -163,6 +164,8 @@ class DecoupledTLB(entries: Int)(implicit edge: TLEdgeOut, p: Parameters) extend
   io.resp.bits := resp
 
   io.ptw <> tlb.io.ptw
+
+  FpgaDebug(state, io.ptw)
 }
 
 class FrontendTLBIO(implicit p: Parameters) extends CoreBundle {
@@ -387,4 +390,9 @@ class DmaFrontend(implicit p: Parameters) extends CoreModule()(p)
   when (state === s_finish) { state := s_idle }
 
   io.busy := (state =/= s_idle) || dma_busy.orR
+
+  FpgaDebug(
+    io.cpu, io.tlb, state,
+    dma_busy, bytes_left, segments_left,
+    tlb_sent, tlb_to_send, ptw_errors)
 }
