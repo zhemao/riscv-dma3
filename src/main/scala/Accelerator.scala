@@ -92,13 +92,13 @@ class DmaController(implicit val p: Parameters, edge: TLEdgeOut) extends Module
 
   val cmd = Queue(io.cmd)
   val inst = cmd.bits.inst
-  val is_transfer = inst.funct < 3.U
-  val is_sfence = inst.funct === 3.U
+  val is_transfer = inst.funct < 4.U
   val is_cr_read = inst.funct === 4.U
   val is_cr_write = inst.funct >= 5.U && inst.funct <= 7.U
   val is_cr_set = inst.funct === 6.U
   val is_cr_clear = inst.funct === 7.U
-  val is_sg = inst.funct >= 8.U
+  val is_sg = inst.funct >= 8.U && inst.funct <= 11.U
+  val is_sfence = inst.funct === 12.U
 
   val crfile = Module(new DmaCtrlRegFile)
   val frontend = Module(new DmaFrontend)
