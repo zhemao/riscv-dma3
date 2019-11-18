@@ -207,10 +207,14 @@ class ReservationQueue(val edge: TLEdge)(implicit val p: Parameters)
   io.in.resp.valid := req.valid && !full
   io.in.resp.bits.idx := tail
 
+  val rshiftValid = pkt_valid >> head
+  val lshiftValid = pkt_valid << (pipelineDepth.U - head)
+  val rotValid = rshiftValid | lshiftValid
+
   io.in.data.ready := true.B
-  io.out.data.valid := (pkt_valid >> head)(0)
+  io.out.data.valid := rshiftValid(0)
   io.out.data.bits := pkt_buffer(head)
-  io.out.count := PopCount(pkt_valid)
+  io.out.count := PriorityEncoder(~rotValid)
 
   when (req.fire()) {
     tail := incWrap(tail, req_count)
