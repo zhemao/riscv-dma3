@@ -214,7 +214,7 @@ class ReservationQueue(val edge: TLEdge)(implicit val p: Parameters)
   io.in.data.ready := true.B
   io.out.data.valid := rshiftValid(0)
   io.out.data.bits := pkt_buffer(head)
-  io.out.count := PriorityEncoder(~rotValid)
+  io.out.count := Mux(pkt_valid.andR, pipelineDepth.U, PriorityEncoder(~rotValid))
 
   when (req.fire()) {
     tail := incWrap(tail, req_count)
