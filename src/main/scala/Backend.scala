@@ -12,8 +12,7 @@ import testchipip.TLHelper
 case class DmaConfig(
   nTrackers: Int = 1,
   nDmaXacts: Int = 4,
-  nMemXacts: Int = 4,
-  pipelineDepth: Int = 16)
+  nMemXacts: Int = 4)
 
 case object DmaKey extends Field[DmaConfig]
 
@@ -24,9 +23,6 @@ trait HasDmaParameters {
   val nDmaXacts = dmaExternal.nDmaXacts
   val nDmaTrackerMemXacts = dmaExternal.nMemXacts
   val dmaXactIdBits = log2Up(nDmaXacts)
-  val pipelineDepth = dmaExternal.pipelineDepth
-  val pipelineIdxBits = log2Up(pipelineDepth)
-  val pipelineCountBits = log2Up(pipelineDepth+1)
   val dmaStatusBits = 3
   val blockBytes = p(CacheBlockBytes)
   val blockOffset = log2Ceil(blockBytes)
@@ -42,6 +38,10 @@ trait DmaTrackerUtils extends HasDmaParameters {
   lazy val dataBeats = blockBytes / dataBytes
   lazy val beatAddrBits = log2Ceil(dataBeats)
   lazy val byteAddrBits = log2Ceil(dataBytes)
+
+  lazy val pipelineDepth = nDmaTrackerMemXacts * dataBeats
+  lazy val pipelineIdxBits = log2Up(pipelineDepth)
+  lazy val pipelineCountBits = log2Up(pipelineDepth+1)
 
   def incWrap(cur: UInt, inc: UInt): UInt = {
     val unwrapped = cur +& inc
@@ -136,57 +136,46 @@ class DmaBackendModule(outer: DmaBackend) extends LazyModuleImp(outer)
   }
 }
 
-class PipelinePacket(dataBits: Int)(implicit p: Parameters) extends DmaBundle {
+class PipelinePacket(val dataBits: Int)(implicit p: Parameters) extends DmaBundle {
   val data = UInt(dataBits.W)
   val bytes = UInt(log2Up(dataBits/8).W)
-
-  override def cloneType =
-    new PipelinePacket(dataBits)(p).asInstanceOf[this.type]
 }
 
 class ReservationRequest extends Bundle {
   val multibeat = Bool()
 }
 
-class ReservationResponse(implicit p: Parameters) extends DmaBundle {
+class ReservationResponse(implicit p: Parameters, val edge: TLEdge)
+    extends DmaBundle with DmaTrackerUtils {
   val idx = UInt(pipelineIdxBits.W)
 }
 
-class ReservationData(dataBits: Int)(implicit p: Parameters)
-    extends DmaBundle {
+class ReservationData(implicit p: Parameters, val edge: TLEdge)
+    extends DmaBundle with DmaTrackerUtils {
   val data = UInt(dataBits.W)
   val bytes = UInt(log2Ceil(dataBits/8).W)
   val idx = UInt(pipelineIdxBits.W)
-
-  override def cloneType =
-    new ReservationData(dataBits)(p).asInstanceOf[this.type]
 }
 
-class ReservationInputIO(dataBits: Int)(implicit p: Parameters)
-    extends Bundle {
+class ReservationInputIO(implicit val p: Parameters, val edge: TLEdge)
+    extends Bundle with DmaTrackerUtils {
   val req = Decoupled(new ReservationRequest)
   val resp = Flipped(Decoupled(new ReservationResponse))
-  val data = Decoupled(new ReservationData(dataBits))
-
-  override def cloneType =
-    new ReservationInputIO(dataBits)(p).asInstanceOf[this.type]
+  val data = Decoupled(new ReservationData)
 }
 
-class ReservationOutputIO(dataBits: Int)(implicit p: Parameters)
-    extends DmaBundle {
+class ReservationOutputIO(implicit p: Parameters, val edge: TLEdge)
+    extends DmaBundle with DmaTrackerUtils {
   val count = Output(UInt(pipelineCountBits.W))
   val data = Decoupled(new PipelinePacket(dataBits))
-
-  override def cloneType =
-    new ReservationOutputIO(dataBits)(p).asInstanceOf[this.type]
 }
 
-class ReservationQueue(val edge: TLEdge)(implicit val p: Parameters)
+class ReservationQueue(implicit val p: Parameters, val edge: TLEdge)
     extends Module with DmaTrackerUtils {
 
   val io = IO(new Bundle {
-    val in = Flipped(new ReservationInputIO(dataBits))
-    val out = new ReservationOutputIO(dataBits)
+    val in = Flipped(new ReservationInputIO)
+    val out = new ReservationOutputIO
   })
 
   val req = Queue(io.in.req, 1)
@@ -322,7 +311,7 @@ class DmaTrackerReaderModule(outer: DmaTrackerReader)
   val (tl, edge) = outer.node.out(0)
   val io = IO(new Bundle {
     val dma_req = Flipped(Decoupled(new DmaRequest))
-    val res = new ReservationInputIO(dataBits)
+    val res = new ReservationInputIO()(p, edge)
   })
 
   val src_addr = Reg(UInt(addrBits.W))
@@ -427,7 +416,7 @@ class DmaTrackerWriterModule(outer: DmaTrackerWriter)
   val (tl, edge) = outer.node.out(0)
   val io = IO(new Bundle {
     val dma = Flipped(new DmaIO)
-    val pipe = Flipped(new ReservationOutputIO(dataBits))
+    val pipe = Flipped(new ReservationOutputIO()(p, edge))
   })
 
   val dst_addr = Reg(UInt(addrBits.W))
@@ -567,7 +556,7 @@ class DmaTrackerModule(outer: DmaTracker) extends LazyModuleImp(outer)
   val prefetch = outer.prefetch.module
   val reader = outer.reader.module
   val writer = outer.writer.module
-  val resq = Module(new ReservationQueue(edge))
+  val resq = Module(new ReservationQueue()(p, edge))
   //resq.io.in <> reader.io.res
   resq.io.in.req <> reader.io.res.req
   resq.io.in.data <> reader.io.res.data
