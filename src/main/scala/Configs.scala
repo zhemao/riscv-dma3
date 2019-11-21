@@ -11,8 +11,14 @@ object ConfigValName {
 }
 import ConfigValName._
 
-class WithDma extends Config((site, here, up) => {
-  case DmaKey => DmaConfig()
+class WithDma(
+    nTrackers: Int = 1,
+    nDmaXacts: Int = 4,
+    nMemXacts: Int = 4) extends Config((site, here, up) => {
+  case DmaKey => DmaConfig(
+    nTrackers = nTrackers,
+    nDmaXacts = nDmaXacts,
+    nMemXacts = nMemXacts)
   case BuildRoCC => Seq((p: Parameters) =>
       LazyModule(new CopyAccelerator(OpcodeSet.custom2)(p)))
 })
